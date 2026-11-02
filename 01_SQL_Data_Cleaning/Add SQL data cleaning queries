@@ -1,1 +1,311 @@
 
+/*
+=========================================================
+PROJECT: E-COMMERCE CUSTOMER ANALYTICS
+STAGE 1: SQL DATA CLEANING
+TOOL: MICROSOFT SQL SERVER MANAGEMENT STUDIO
+=========================================================
+
+OBJECTIVES:
+1. Combine both retail datasets.
+2. Explore the combined dataset.
+3. Identify missing values.
+4. Check invalid quantities and prices.
+5. Identify duplicate records.
+6. Convert data types.
+7. Remove duplicate and invalid records.
+8. Create the final cleaned dataset.
+=========================================================
+*/
+
+-- STEP 1: Select the project database
+
+USE EcommerceCustomerAnalytics;
+GO
+
+
+-- STEP 2: Combine both datasets using UNION ALL
+
+SELECT *
+INTO dbo.RetailCombined
+FROM
+(
+    SELECT *
+    FROM dbo.[Year 2009-2010]
+
+    UNION ALL
+
+    SELECT *
+    FROM dbo.[Year 2010-2011]
+) AS CombinedData;
+GO
+
+
+-- STEP 3: Check the total number of records
+
+SELECT COUNT(*) AS Total_Records
+FROM dbo.RetailCombined;
+GO
+
+
+-- STEP 4: Display the first 10 records
+
+SELECT TOP 10 *
+FROM dbo.RetailCombined;
+GO
+
+
+-- STEP 5: Check column names and data types
+
+SELECT
+    COLUMN_NAME,
+    DATA_TYPE,
+    IS_NULLABLE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'RetailCombined';
+GO
+
+
+-- STEP 6: Check missing values
+
+SELECT
+    COUNT(*) AS Total_Records,
+
+    SUM(CASE
+        WHEN Description IS NULL THEN 1
+        ELSE 0
+    END) AS Missing_Descriptions,
+
+    SUM(CASE
+        WHEN [Customer ID] IS NULL THEN 1
+        ELSE 0
+    END) AS Missing_Customer_IDs
+
+FROM dbo.RetailCombined;
+GO
+
+
+-- STEP 7: Check invalid quantities
+
+SELECT *
+FROM dbo.RetailCombined
+WHERE TRY_CONVERT(INT, Quantity) <= 0;
+GO
+
+
+-- STEP 8: Check invalid prices
+
+SELECT *
+FROM dbo.RetailCombined
+WHERE TRY_CONVERT(DECIMAL(18,2), Price) <= 0;
+GO
+
+
+-- STEP 9: Check duplicate records
+
+SELECT
+    Invoice,
+    StockCode,
+    Description,
+    Quantity,
+    InvoiceDate,
+    Price,
+    [Customer ID],
+    Country,
+    COUNT(*) AS Duplicate_Count
+
+FROM dbo.RetailCombined
+
+GROUP BY
+    Invoice,
+    StockCode,
+    Description,
+    Quantity,
+    InvoiceDate,
+    Price,
+    [Customer ID],
+    Country
+
+HAVING COUNT(*) > 1;
+GO
+
+
+-- STEP 10: Check date conversion
+
+SELECT
+    InvoiceDate,
+    TRY_CONVERT(DATETIME, InvoiceDate) AS Converted_InvoiceDate
+FROM dbo.RetailCombined;
+GO
+
+
+-- STEP 11: Check numeric conversion
+
+SELECT
+    Quantity,
+    TRY_CONVERT(INT, Quantity) AS Converted_Quantity,
+
+    Price,
+    TRY_CONVERT(DECIMAL(18,2), Price) AS Converted_Price
+
+FROM dbo.RetailCombined;
+GO
+
+
+-- STEP 12: Create the cleaned dataset
+
+;WITH CleanedData AS
+(
+    SELECT
+        Invoice,
+        StockCode,
+        Description,
+
+        TRY_CONVERT(INT, Quantity) AS Quantity,
+
+        COALESCE(
+            TRY_CONVERT(DATETIME, InvoiceDate),
+            TRY_CONVERT(DATETIME, InvoiceDate, 103)
+        ) AS InvoiceDate,
+
+        TRY_CONVERT(DECIMAL(18,2), Price) AS Price,
+
+        [Customer ID],
+        Country
+
+    FROM dbo.RetailCombined
+),
+
+RankedData AS
+(
+    SELECT *,
+
+        ROW_NUMBER() OVER
+        (
+            PARTITION BY
+                Invoice,
+                StockCode,
+                Description,
+                Quantity,
+                InvoiceDate,
+                Price,
+                [Customer ID],
+                Country
+
+            ORDER BY Invoice
+        ) AS RowNum
+
+    FROM CleanedData
+)
+
+SELECT
+    Invoice,
+    StockCode,
+    Description,
+    Quantity,
+    InvoiceDate,
+    Price,
+    [Customer ID],
+    Country
+
+INTO dbo.RetailCleaned
+
+FROM RankedData
+
+WHERE RowNum = 1
+  AND Quantity > 0
+  AND Price > 0
+  AND InvoiceDate IS NOT NULL;
+GO
+
+
+-- STEP 13: Check the final cleaned dataset
+
+SELECT COUNT(*) AS Total_Cleaned_Records
+FROM dbo.RetailCleaned;
+GO
+
+
+-- STEP 14: Display the final cleaned records
+
+SELECT TOP 10 *
+FROM dbo.RetailCleaned;
+GO
+
+
+-- STEP 15: Validate the cleaned data
+
+SELECT
+    SUM(CASE
+        WHEN Quantity <= 0 THEN 1
+        ELSE 0
+    END) AS Invalid_Quantities,
+
+    SUM(CASE
+        WHEN Price <= 0 THEN 1
+        ELSE 0
+    END) AS Invalid_Prices,
+
+    SUM(CASE
+        WHEN InvoiceDate IS NULL THEN 1
+        ELSE 0
+    END) AS Missing_Invoice_Dates
+
+FROM dbo.RetailCleaned;
+GO
+
+
+-- STEP 16: Verify duplicate records after cleaning
+
+SELECT
+    Invoice,
+    StockCode,
+    Description,
+    Quantity,
+    InvoiceDate,
+    Price,
+    [Customer ID],
+    Country,
+    COUNT(*) AS Duplicate_Count
+
+FROM dbo.RetailCleaned
+
+GROUP BY
+    Invoice,
+    StockCode,
+    Description,
+    Quantity,
+    InvoiceDate,
+    Price,
+    [Customer ID],
+    Country
+
+HAVING COUNT(*) > 1;
+GO
+
+
+-- STEP 17: Final dataset summary
+
+SELECT
+    COUNT(*) AS Total_Records,
+    COUNT(DISTINCT Invoice) AS Total_Invoices,
+    COUNT(DISTINCT [Customer ID]) AS Total_Customers,
+    COUNT(DISTINCT Country) AS Total_Countries,
+    SUM(Quantity) AS Total_Quantity,
+    SUM(Quantity * Price) AS Total_Revenue
+
+FROM dbo.RetailCleaned;
+GO
+
+
+/*
+=========================================================
+SQL DATA CLEANING COMPLETED
+
+FINAL OUTPUT TABLE: dbo.RetailCleaned
+
+NEXT STAGE:
+PYTHON PANDAS - RFM CUSTOMER SEGMENTATION
+=========================================================
+*/
+
